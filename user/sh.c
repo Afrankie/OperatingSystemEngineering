@@ -13,6 +13,9 @@
 
 #define MAXARGS 10
 
+int flag;
+int first;
+
 struct cmd {
   int type;
 };
@@ -64,8 +67,9 @@ runcmd(struct cmd *cmd)
   struct pipecmd *pcmd;
   struct redircmd *rcmd;
 
-  if(cmd == 0)
+  if(cmd == 0) {
     exit(1);
+  }
 
   switch(cmd->type){
   default:
@@ -75,6 +79,11 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit(1);
+    // printf("exec %s and %s\n", ecmd->argv[0], ecmd->argv[1]);
+    if (strcmp(ecmd->argv[0], "sh") == 0 && ecmd->argv[1] == 0) {
+      ecmd->argv[1] = "off";
+      // printf("hit replace %s\n", ecmd->argv[1]);
+    }
     exec(ecmd->argv[0], ecmd->argv);
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
@@ -86,6 +95,7 @@ runcmd(struct cmd *cmd)
       fprintf(2, "open %s failed\n", rcmd->file);
       exit(1);
     }
+    // printf("type is %d\n", rcmd->cmd);
     runcmd(rcmd->cmd);
     break;
 
@@ -133,19 +143,37 @@ runcmd(struct cmd *cmd)
 int
 getcmd(char *buf, int nbuf)
 {
-  fprintf(2, "$ ");
+  // printf("stuck1\n");  
+  if (flag) {
+    if (!first) {
+      sleep(5);
+      fprintf(2, "$ ");
+    }
+  }
+
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
+  // printf("stuck2\n");  
+  if (buf[0] == 's' && buf[1] == 'h' && buf[3] == '<') {
+      // printf("hit getcmd %s\n", buf);
+      first = 1;
+  }
+  // printf("buf is %s, flag is %d, first is %d\n", buf, flag, first);
+
   if(buf[0] == 0) // EOF
     return -1;
   return 0;
 }
 
 int
-main(void)
+main(int argc, char *argv[])
 {
+  flag = 1;
+  first = 0;
   static char buf[100];
   int fd;
+
+  if (!strcmp(argv[1], "off")) flag = 0;
 
   // Ensure that three file descriptors are open.
   while((fd = open("console", O_RDWR)) >= 0){
@@ -154,9 +182,11 @@ main(void)
       break;
     }
   }
+  // printf("en %d\n",getpid());
 
   // Read and run input commands.
   while(getcmd(buf, sizeof(buf)) >= 0){
+    // printf("run %d\n", getpid());
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
       // Chdir must be called by the parent, not the child.
       buf[strlen(buf)-1] = 0;  // chop \n
@@ -164,10 +194,19 @@ main(void)
         fprintf(2, "cannot cd %s\n", buf+3);
       continue;
     }
-    if(fork1() == 0)
+    if(fork1() == 0) {
+      // printf("son %d\n", getpid());
       runcmd(parsecmd(buf));
-    wait(0);
+    } else {
+      // printf("fa %d\n", getpid());
+      wait(0);
+    }
+    if (first) {
+      first = 0;
+    }
   }
+
+  // printf("exit %d\n", getpid());
   exit(0);
 }
 
