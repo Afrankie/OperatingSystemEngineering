@@ -9,6 +9,8 @@ main(int argc, char *argv[])
   int i;
   char *nargv[MAXARG];
 
+  // printf("trace enter, arg1 %s, arg2 %s, arg3 %s\n", argv[0], argv[1], argv[2]);
+
   if(argc < 3 || (argv[1][0] < '0' || argv[1][0] > '9')){
     fprintf(2, "Usage: %s mask command\n", argv[0]);
     exit(1);

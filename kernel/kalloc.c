@@ -8,6 +8,7 @@
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
+#include "proc.h"
 
 void freerange(void *pa_start, void *pa_end);
 
@@ -21,13 +22,19 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
+  uint64 used;
 } kmem;
+
+int init = 0;
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  init = 1;
   freerange(end, (void*)PHYSTOP);
+  init = 0;
+  kmem.used = 0;
 }
 
 void
@@ -57,6 +64,10 @@ kfree(void *pa)
   r = (struct run*)pa;
 
   acquire(&kmem.lock);
+  if (!init) {
+    // printf("minus\n");
+    kmem.used -= PGSIZE;  
+  }
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);
@@ -72,11 +83,22 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r) {
+    // printf("add\n");
+    kmem.used += PGSIZE;
     kmem.freelist = r->next;
+  }
   release(&kmem.lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+uint64
+usedmem(void)
+{
+  uint64 all = 134062080;
+  // printf("all is %d, used is %d, proc sz is %d\n", all, kmem.used, myproc()->sz);
+  return all - kmem.used;
 }
