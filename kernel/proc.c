@@ -126,7 +126,10 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  p->tick_count = 0;
+  p->cycle = 0;
+  p->faddr = 0;
+  p->ret = 1;
   return p;
 }
 

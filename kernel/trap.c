@@ -75,7 +75,19 @@ usertrap(void)
 
   if(p->killed)
     exit(-1);
-
+  if(which_dev == 2) {
+      struct proc *p = myproc();
+      if (p->cycle > 0) {
+          p->tick_count += 1;
+          if (p->tick_count % p->cycle == 0 && p->ret) {
+            struct trapframe tf = *p->trapframe;
+            p->ret = 0;
+            p->_trapframe = &tf;
+//            printf("111 stap %p kstack %p tp %p pgtable %p\n", r_satp(), p->kstack, r_tp(), p->pagetable);
+            p->trapframe->epc = p->faddr;
+          }
+      }
+  }
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
     yield();
