@@ -80,9 +80,10 @@ usertrap(void)
       if (p->cycle > 0) {
           p->tick_count += 1;
           if (p->tick_count % p->cycle == 0 && p->ret) {
-            struct trapframe tf = *p->trapframe;
+//            struct trapframe tf = *p->trapframe;
             p->ret = 0;
-            p->_trapframe = &tf;
+//            p->_trapframe = &tf;
+            *p->_trapframe = *p->trapframe;
 //            printf("111 stap %p kstack %p tp %p pgtable %p\n", r_satp(), p->kstack, r_tp(), p->pagetable);
             p->trapframe->epc = p->faddr;
           }
