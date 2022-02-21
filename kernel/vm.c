@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -311,7 +313,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+//  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -320,12 +322,20 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    if (flags & PTE_W) {
+        *pte ^= PTE_W;
+        flags ^= PTE_W;
+    }
+    *pte |= PTE_F;
+    flags |= PTE_F;
+//    if((mem = kalloc()) == 0)
+//      goto err;
+//    memmove(mem, (char*)pa, PGSIZE);
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+//      kfree(mem);
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+    } else {
+        incrrefcnt(pa);
     }
   }
   return 0;
@@ -364,7 +374,26 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
+    pte_t *pte = walk(pagetable, va0, 0);
+    if (PTE_FLAGS(*pte) & PTE_F) {
+//        printf("copy out in cow page\n");
+        char* mem = kalloc();
+        if (mem == 0) {
+            printf("copyout not memory!!\n");
+//            return -1;
+        } else {
+            memmove(mem, (char*)pa0, PGSIZE);
+            uvmunmap(pagetable, va0, 1, 1);
+            if(mappages(pagetable, va0, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+                printf("copyout mappages fail\n");
+                kfree(mem);
+            }
+            memmove((void *)((uint64)mem + (dstva - va0)), src, n);
+        }
+    } else {
+        memmove((void *)(pa0 + (dstva - va0)), src, n);
+    }
+//    memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;
     src += n;

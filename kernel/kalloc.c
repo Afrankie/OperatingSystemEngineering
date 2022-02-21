@@ -9,6 +9,7 @@
 #include "riscv.h"
 #include "defs.h"
 
+int cnt[32768];
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -23,6 +24,15 @@ struct {
   struct run *freelist;
 } kmem;
 
+uint64 getpi(uint64 pa) {
+    if (pa-KERNBASE<0) {
+        printf("getpi pa=%p\n", pa);
+    } else if ((pa-KERNBASE) / 4096 < 0) {
+        printf("getpi2 pa=%p\n", pa);
+    }
+    return (pa-KERNBASE) / 4096;
+}
+
 void
 kinit()
 {
@@ -35,6 +45,7 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
+  memset(cnt, 0, sizeof(cnt));
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
     kfree(p);
 }
@@ -51,6 +62,11 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
+  int t = --cnt[getpi((uint64)pa)];
+  if (t > 0) {
+//      printf("cnt=%d\n", t);
+      return;
+  }
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
@@ -76,7 +92,20 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    int pi = getpi((uint64)r);
+    cnt[pi] = 1;
+  }
   return (void*)r;
+}
+
+void decrrefcnt(uint64 pa) {
+//    printf("decr old%d\n", cnt[getpi(pa)]);
+    cnt[getpi(pa)]--;
+//    printf("decr new%d\n", cnt[getpi(pa)]);
+}
+
+void incrrefcnt(uint64 pa) {
+    cnt[getpi(pa)]++;
 }
