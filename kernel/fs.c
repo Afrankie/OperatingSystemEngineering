@@ -231,6 +231,7 @@ iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
+  strncpy(dip->lp, ip->lp, PATHL);
   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
   log_write(bp);
   brelse(bp);
@@ -250,7 +251,8 @@ iget(uint dev, uint inum)
   empty = 0;
   for(ip = &icache.inode[0]; ip < &icache.inode[NINODE]; ip++){
     if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){
-      ip->ref++;
+       if (ip->type!=T_SYMLINK)
+        ip->ref++;
       release(&icache.lock);
       return ip;
     }
@@ -259,8 +261,13 @@ iget(uint dev, uint inum)
   }
 
   // Recycle an inode cache entry.
-  if(empty == 0)
-    panic("iget: no inodes");
+  if(empty == 0) {
+//      for(ip = &icache.inode[0]; ip < &icache.inode[NINODE]; ip++){
+//          printf("type %d lp %s ref %d link %d\n", ip->type, ip->lp, ip->ref, ip->nlink);
+//      }
+      panic("iget: no inodes");  
+  }
+    
 
   ip = empty;
   ip->dev = dev;
@@ -333,7 +340,7 @@ void
 iput(struct inode *ip)
 {
   acquire(&icache.lock);
-
+//  printf("delete %s %d %d %d\n", ip->lp, ip->ref, ip->valid, ip->nlink);
   if(ip->ref == 1 && ip->valid && ip->nlink == 0){
     // inode has no links and no other references: truncate and free.
 
@@ -352,8 +359,8 @@ iput(struct inode *ip)
 
     acquire(&icache.lock);
   }
-
-  ip->ref--;
+  if (ip->type!=T_SYMLINK)
+    ip->ref--;
   release(&icache.lock);
 }
 

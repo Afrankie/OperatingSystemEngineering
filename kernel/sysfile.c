@@ -115,6 +115,46 @@ sys_fstat(void)
   return filestat(f, st);
 }
 
+uint64
+sys_symlink(void)
+{
+    char name[DIRSIZ], target[DIRSIZ], path[DIRSIZ];
+    struct inode *dp, *ip;
+
+    if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+        return -1;
+    begin_op();
+    if((dp = nameiparent(path, name)) == 0) {
+        panic("father path no exists");
+    }
+    ilock(dp);
+
+    
+    if((ip = dirlookup(dp, name, 0)) == 0){
+        if((ip = ialloc(dp->dev, T_SYMLINK)) == 0)
+            panic("create: ialloc");
+//        ilock(ip);
+//        printf("create %s %d %d\n", name, ip->ref, ip->nlink);
+    } else {
+//        printf("reuse %s %d %d\n", name, ip->ref, ip->nlink);
+//        ilock(ip);
+    }
+    ip->nlink=1;
+    ip->type=T_SYMLINK;
+    strncpy(ip->lp, target, PATHL);
+    iupdate(ip);
+    dirlink(dp, name, ip->inum);
+//    iunlock(dp);
+//    iunlockput(ip);
+//    iput(ip);
+//    iput(dp);
+//    iunlock(ip);
+    iunlockput(dp);
+    end_op();
+
+    return 0;
+}
+
 // Create the path new as a link to the same inode as old.
 uint64
 sys_link(void)
@@ -283,6 +323,27 @@ create(char *path, short type, short major, short minor)
   return ip;
 }
 
+// find root of symbolic path
+static struct inode*
+rec(char *path, int cnt)
+{
+//    printf("rec path %s\n", path);
+    if (cnt > 10) {
+        printf("cyclic ref\n");
+        return 0;
+    }
+    struct inode *ip;
+    
+    if ((ip = namei(path)) == 0) {
+        printf("recursive fail in find symbolic path %s\n", path);
+        return 0;
+    }
+    if (ip->type != T_SYMLINK) {
+        return ip;
+    }
+    return rec(ip->lp, cnt + 1);
+}
+
 uint64
 sys_open(void)
 {
@@ -308,6 +369,14 @@ sys_open(void)
       end_op();
       return -1;
     }
+    if (ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)) {
+        ip = rec(path, 0);
+        if (!ip) {
+            end_op();
+            return -1;
+        }
+    }
+
     ilock(ip);
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
