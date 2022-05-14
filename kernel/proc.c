@@ -6,6 +6,8 @@
 #include "proc.h"
 #include "defs.h"
 
+struct vma gvma[NOFILE];
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -291,9 +293,45 @@ fork(void)
   np->trapframe->a0 = 0;
 
   // increment reference counts on open file descriptors.
-  for(i = 0; i < NOFILE; i++)
-    if(p->ofile[i])
-      np->ofile[i] = filedup(p->ofile[i]);
+  for(i = 0; i < NOFILE; i++) {
+      if(p->ofile[i])
+          np->ofile[i] = filedup(p->ofile[i]);
+      
+      struct vma* vma = p->vma[i];
+      if (vma && vma->osize > 0) {
+          struct vma* ovma = vma;
+          struct vma* nvma = 0;
+          for (int j = 0; j < NOFILE;  j++) {
+              struct vma* vma2 = &gvma[j];
+              if (!vma2 || vma2->osize == 0) {
+                  nvma = vma2;
+                  break;
+              }
+          }
+          if (!nvma) {
+              panic("fork fail no avail vma");
+          }
+          nvma->flags = ovma->flags;
+          nvma->prot = ovma->prot;
+          nvma->osize = ovma->osize;
+          nvma->size = ovma->size;
+          nvma->f = ovma->f;
+          nvma->va = ovma->va;
+          printf("fork copy vma va %p osize %d apage %d size %d\n", nvma->va, nvma->osize, nvma->apage, nvma->size);
+          int ok = 0;
+          for (int k = 0; k < NOFILE; k ++) {
+              struct vma* vma3 = np->vma[k];
+              if (!vma3 || vma3->osize == 0) {
+                  np->vma[k] = nvma;
+                  ok = 1;
+                  break;
+              }
+          }
+          if (!ok) {
+              panic("proc not avail vma");
+          }
+      }
+  }
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
@@ -351,6 +389,14 @@ exit(int status)
       fileclose(f);
       p->ofile[fd] = 0;
     }
+  }
+
+  for (int i = 0; i < NOFILE; i ++) {
+      struct vma* vma = p->vma[i]; 
+      if (vma && vma->osize > 0 && vma->apage > 0) {
+          munmap(vma->va, vma->size);
+      }
+      p->vma[i] = 0;
   }
 
   begin_op();

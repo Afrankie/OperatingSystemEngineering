@@ -484,3 +484,59 @@ sys_pipe(void)
   }
   return 0;
 }
+
+//void* mmap(void*, int, int, int, int, int);
+//int munmap(void*, int);
+uint64
+sys_mmap(void)
+{
+//    void *mmap(void *addr, size_t length, int prot, int flags,
+//               int fd, off_t offset);
+    uint64 fail = 0xffffffffffffffffLL; 
+    int length, prot, flags, fd;
+    struct file* f;
+    if(argint(1, &length) < 0 || argint(2, &prot) < 0 || argint(3, &flags) < 0 || argfd(4, &fd, &f) < 0)
+        return fail;
+    if ((flags & MAP_SHARED) && !f->writable && (prot & PROT_WRITE)) {
+        return fail;
+    }
+    
+    printf("call map length %d prot %d flags %d inum %d\n", length, prot, flags, f->ip->inum);
+    struct proc *p = myproc();
+    struct vma *vma = 0;
+    filedup(f);
+    int i;
+    for (i = 0; i < NOFILE; i ++) {
+        struct vma *tvma = &gvma[i];
+        if (!tvma || tvma->osize == 0) {
+            vma = tvma;
+            break;
+        }
+    }
+    
+    if (!vma) {
+        panic("map fail no avail vma\n");
+    }
+    vma->va = p->sz;
+    vma->size = length;
+    vma->osize = length;
+    vma->f = f;
+    vma->prot = prot;
+    vma->flags = flags;
+    
+    p->vma[i] = vma; 
+    p->sz += length;
+    printf("map addr %p size %d vma addr %p apage %d off %d of %p nf %p\n", vma->va, vma->size, vma, vma->apage, vma->off, f, vma->f);
+    return vma->va;    
+}
+
+
+uint64
+sys_munmap(void)
+{
+    uint64 addr;
+    int size;
+    if (argaddr(0, &addr) < 0 || argint(1, &size) < 0)
+        return -1;
+    return munmap(addr, size);
+}

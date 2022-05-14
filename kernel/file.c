@@ -12,6 +12,7 @@
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
+#include "fcntl.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -180,3 +181,52 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+
+int 
+munmap(uint64 addr, int size)
+{
+    printf("call unmap addr %p size %d\n", addr, size);
+    struct file* f = 0;
+    struct vma* rvma = 0;
+    struct proc *p = myproc();
+              
+    for (int i = 0; i < NOFILE;  i++) {
+        struct vma* vma = p->vma[i];
+        if (vma && addr >= vma->va && addr < vma->va + vma->osize) {
+            rvma = vma;
+            f = vma->f;
+            break;
+        }
+    }
+    if (!rvma || !f) {
+        panic("munmap cannot find vma at all");
+    }
+
+    if (size == rvma->size) {
+        printf("shrug proc size\n");
+        --f->ref;
+        p->sz -= rvma->osize;
+        rvma->off = 0;
+        rvma->osize = 0;
+//                rvma->apage = 0;
+    }
+    
+    rvma->size -= size;
+    if (addr == rvma->va) {
+        rvma->va = addr + size;
+    }
+    
+    addr = PGROUNDDOWN(addr);
+    for (uint64 i = addr; i < addr + size; i += PGSIZE) {
+        printf("unmap addr %p apge %d\n", i, rvma->apage);
+        if (rvma->flags & MAP_SHARED) {
+            printf("writeback\n");
+            filewrite(f, i, PGSIZE);
+        }
+        if (rvma->apage > 0) {
+            uvmunmap(p->pagetable, i, 1, 1);
+            rvma->apage--;
+        }
+    }
+    return 0;    
+}
