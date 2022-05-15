@@ -20,6 +20,7 @@ static struct mbuf *rx_mbufs[RX_RING_SIZE];
 static volatile uint32 *regs;
 
 struct spinlock e1000_lock;
+struct spinlock e1000_lock_rx;
 
 // called by pci_init().
 // xregs is the memory address at which the
@@ -28,8 +29,9 @@ void
 e1000_init(uint32 *xregs)
 {
   int i;
-
+    initl();
   initlock(&e1000_lock, "e1000");
+  initlock(&e1000_lock_rx, "e1000_rx");
 
   regs = xregs;
 
@@ -103,6 +105,33 @@ e1000_transmit(struct mbuf *m)
   // a pointer so that it can be freed after sending.
   //
   
+//    acquire(&e1000_lock);
+//      printf("rx head %d tail %d \n", regs[E1000_RDH],regs[E1000_RDT]);
+//  if ((regs[E1000_RDT] + 1) % RX_RING_SIZE > regs[E1000_RDH]) {
+//  while(cnt > 0){
+//      sleep((void *)(&regs[E1000_RDT]), &e1000_lock);
+//  }
+  struct tx_desc *td;
+  struct mbuf *om;
+  int idx = regs[E1000_TDT];
+//  printf("send head %d tail %d\n", regs[E1000_TDH],idx);
+  td = &tx_ring[idx];
+  om = tx_mbufs[idx];
+  if ((td->status & E1000_TXD_STAT_DD) == 0) {
+    printf("send drop\n");
+      return -1;
+  }
+  if (om) {
+      mbuffree(om);
+  }
+  td->addr = (uint64)m->head;
+  td->length = m->len;
+  td->cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+  
+  tx_mbufs[idx] = m;
+  regs[E1000_TDT] = (idx + 1) % TX_RING_SIZE;
+//    printf("# send done\n");
+//    release(&e1000_lock);
   return 0;
 }
 
@@ -115,6 +144,33 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+  
+//  printf("# ac2\n");
+  acquire(&e1000_lock_rx);
+  
+  struct rx_desc *rd;
+  struct mbuf *mb, *nmb;
+  int idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  rd = &rx_ring[idx];
+  mb = rx_mbufs[idx];
+//  printf("recv head %d tail %d\n", regs[E1000_RDH],idx);
+  if ((rd->status & E1000_RXD_STAT_DD) == 0) {
+      printf("rev drop\n");
+      return;
+  }
+  
+  mb->len = rd->length;
+  net_rx(mb);
+  
+  nmb = mbufalloc(0);
+  rx_mbufs[idx] = nmb;
+  rx_ring[idx].addr = (uint64) nmb->head;
+  rx_ring[idx].status = 0;
+  regs[E1000_RDT] = idx;
+  
+//  printf("# rl2\n");
+//  wakeup((void *)(&regs[E1000_RDT]));
+  release(&e1000_lock_rx);
 }
 
 void

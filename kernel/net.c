@@ -11,6 +11,13 @@
 #include "net.h"
 #include "defs.h"
 
+int cnt = 0;
+struct spinlock lc;
+
+void initl(){
+    initlock(&lc, "netlc");
+}
+
 static uint32 local_ip = MAKE_IP_ADDR(10, 0, 2, 15); // qemu's idea of the guest IP
 static uint8 local_mac[ETHADDR_LEN] = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x56 };
 static uint8 broadcast_mac[ETHADDR_LEN] = { 0xFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF };
@@ -203,6 +210,12 @@ void
 net_tx_udp(struct mbuf *m, uint32 dip,
            uint16 sport, uint16 dport)
 {
+//    printf("j\n");
+    acquire(&lc);
+//printf("# %p cnt %d\n", &lc, cnt);
+  while(cnt > 0){
+      sleep(&cnt,&lc);
+  }
   struct udp *udphdr;
 
   // put the UDP header
@@ -214,6 +227,8 @@ net_tx_udp(struct mbuf *m, uint32 dip,
 
   // now on to the IP layer
   net_tx_ip(m, IPPROTO_UDP, dip);
+  cnt += 1;
+    release(&lc);
 }
 
 // sends an ARP packet
@@ -310,6 +325,11 @@ net_rx_udp(struct mbuf *m, uint16 len, struct ip *iphdr)
   sport = ntohs(udphdr->sport);
   dport = ntohs(udphdr->dport);
   sockrecvudp(m, sip, dport, sport);
+    acquire(&lc);
+  cnt -= 1;
+//  printf("over cnt %d\n", cnt);
+    wakeup(&cnt);
+    release(&lc);
   return;
 
 fail:
